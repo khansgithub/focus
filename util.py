@@ -40,7 +40,7 @@ class YesNoResponse(BaseModel):
     model_config = ConfigDict(extra='allow')  
 
 class Stage(BaseModel):
-    stage: float = Field(default=0)
+    stage: float = Field(default=-1)
 
 _stage = Stage()
 def stage() -> Stage:

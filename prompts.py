@@ -69,9 +69,12 @@ Convert the input into the following structure.
     "etc": [ <put all other data here> ]
 }}
 """
+STAGE0 = """
+Your goal is to help the user build their application idea. Direct them to build an MVP as fast as possible. Help them stay on track and moitivated. Give boilerplate code wherever helpful. Assume they are a totally inexperienced developer.
+"""
 
 STAGE1 = """
-Your goal is to help the user build their application idea. Give boilerplate code to help the user get started. Identify 3 MVP features that they can build right away. Assume they are a totally inexperienced developer.
+Identify 3 MVP features that they can build right away.
 After suggesting 3 MVP features, if the user has not mentioned a stack, recommend a stack.
 Suggest how the user can initialise a project with said stack.
 Lastly, ask if the user is okay with the suggested features and stack. If they are okay, tell the user to tell you when they have finished with the mentioned step. If they are not happy with the suggestions, ask them what they would prefer instead.
@@ -95,7 +98,6 @@ Are the features and stack okay with you? Otherwise, shall we get started?
 """
 
 STAGE1_1 = """
-Your goal is to help the user build their application idea. Give boilerplate code to help the user get started. Assume they are a totally inexperienced developer.
 If the user has choosen a different technology, adapt the previous suggestions to fit that technology.
 If the user prefers different feature suggestions, replace one of the 3 previously suggested features with something else.
 
@@ -117,4 +119,8 @@ If the user wants different feature suggestions, respond with this template:
 3. <This will be feature number 3>
 
 Do these seem okay?"
+"""
+
+STAGE2 = """
+
 """

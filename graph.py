@@ -1,42 +1,29 @@
 import json
-from typing import cast
-import util
-from langgraph.graph import START, END
-import ipdb
-import sys
 from types import MethodType
+from typing import Any, Callable
 
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+import ipdb
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import MessagesState, StateGraph
+from langgraph.graph import END, MessagesState, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from llm import SYSTEM_PROMPT, llm, ollama_is_up, parser_llm
+import util
+from llm import SYSTEM_PROMPT, llm
 from prompts import STAGE1, STAGE1_1
-from util import Stage, YesNoResponse, logger, line
+from util import Stage, YesNoResponse, logger
 
 """
-             ┌─────────┐
-             │  start  │
-             └────┬────┘
-                  │
-      ┌───────────┴───────────┐
-      │                       │
- if first msg?                │
-      │                       │
-     True                   False
-      │                       │
-      v                       v
-┌────────────┐        ┌────────────┐
-│ add_prompt │        │ add_system │
-└──────┬─────┘        └──────┬─────┘
-       │                     │
-       └──────────┬──────────┘
-                  v
-             ┌─────────┐
-             │   llm   │
-             └─────────┘
-
+ ENTRY
+   │
+   ▼
+[start] 
+   │ (conditional: next_stage)
+   ├── 1 ──▶ [add_prompt] ──▶ [stage1] ──▶ END
+   │
+   ├── 1.1 ──▶ [stage1.1] 
+   │
+   └── 2 ──▶ [stage2] ──▶ END (finish point)
 """
 THREAD_ID = "foobar"
 
@@ -93,6 +80,12 @@ def is_first_msg(state: ChatState):
 
 
 ###########
+# STAGE 0 #
+###########
+def stage0(state: ChatState):
+    return {"messages": SystemMessage(content=STAGE1)}
+
+###########
 # STAGE 1 #
 ###########
 def stage1(state: ChatState):
@@ -121,12 +114,14 @@ def stage2(state):
 
 
 def next_stage(state: ChatState) -> float:
-    stage = state["stage"].stage
+    prev_stage = state["stage"].stage
     next_stage = 0
 
-    if stage == 0:
+    if prev_stage == -1:
+        next_stage = 0
+    elif prev_stage == 0:
         next_stage = 1
-    elif stage == 1:
+    elif prev_stage == 1:
         # check if the user is okay with the stack
         yesno = llm_yes_no_parse(
             system_msg="""Respond with the following template: {"answer": <"YES"/"NO">""",
@@ -134,7 +129,7 @@ def next_stage(state: ChatState) -> float:
         )
         next_stage = 2 if yesno.answer.lower() == "yes" else 1.1
 
-    elif stage == 1.1:
+    elif prev_stage == 1.1:
         q = "\n".join(
             [
                 f"{m.type}:{m.content}"
@@ -171,7 +166,7 @@ def llm_yes_no_parse(q: str, system_msg: str) -> YesNoResponse:
             return YesNoResponse(**json_data)
         else:
             raise Exception("Response is not a str")
-    except:
+    except Exception:
         ipdb.set_trace()
         raise Exception()
 
@@ -194,34 +189,48 @@ def make_graph(
     if system_prompt:
         SYSTEM_PROMPT = system_prompt
     graph: StateGraph[ChatState, None, ChatState, ChatState] = StateGraph(ChatState)
-    graph.add_node("start", lambda state: {"messages": []})
-    graph.add_node("stage1", stage1)
-    graph.add_node("stage1.1", stage1_1)
-    graph.add_node("stage2", stage2)
-    graph.add_node("add_system", add_system)
-    graph.add_node("add_prompt", add_prompt)
-    graph.add_node("llm", ask_llm)
+    nodes: list[tuple[str, Callable]] = [
+        ("start", lambda state: {"messages": []}),
+        ("stage0", stage0),
+        ("stage1", stage1),
+        ("stage1.1", stage1_1),
+        ("stage2", stage2),
+        ("add_system", add_system),
+        ("add_prompt", add_prompt),
+        ("llm", ask_llm),
+    ]
+
+    edges = [
+        "add_prompt -> stage1"
+    ]
+
+    end_nodes = [node for [node, _] in nodes if node.startswith("stage")]
+
+    for [name, f] in nodes:
+        graph.add_node(name, f)
+
+    for edge in edges:
+        graph.add_edge(*edge.split(" -> "))
+
+    graph.set_entry_point("start")
+
+    for end_node in end_nodes:
+        graph.add_edge(end_node, END)
 
     graph.add_conditional_edges(
         "start",
         next_stage,
-        {1: "add_prompt", 1.1: "stage1.1", 2: "stage2"},
-        # "start", is_first_msg, {True: "add_prompt", False: "add_system"}
+        {0: "stage0", 1: "add_prompt", 1.1: "stage1.1", 2: "stage2"},
     )
 
-    graph.add_edge("add_prompt", "stage1")
-    graph.add_edge("stage1", END)
-    graph.add_edge("stage2", END)
-
-    graph.set_entry_point("start")
-    graph.set_finish_point("stage2")
 
     # graph.add_edge(START, "stage1")
     # graph.add_edge("add_system", "add_prompt")
     # graph.add_edge("add_prompt", "llm")
     r = graph.compile(checkpointer=MEMORY)
     r.invoke = MethodType(overload_invoke(r.invoke), graph)
-    # print(r.get_graph().print_ascii())
+    print(r.get_graph().print_ascii())
+    input(" payuse > ")
     return r
 
 
